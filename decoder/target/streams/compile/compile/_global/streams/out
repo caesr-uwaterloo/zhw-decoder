@@ -1,0 +1,32 @@
+[0m[[0m[33mwarn[0m] [0m[0m/home/michael/Documents/chipyard/generators/decoder/src/main/scala/decoder.scala:18:94: type LazyModule in package diplomacy is deprecated[0m
+[0m[[0m[33mwarn[0m] [0m[0mclass Decoder( val beatBytes : Int, val maxReadBytes : Int )(implicit p: Parameters) extends LazyModule {[0m
+[0m[[0m[33mwarn[0m] [0m[0m                                                                                             ^[0m
+[0m[[0m[33mwarn[0m] [0m[0m/home/michael/Documents/chipyard/generators/decoder/src/main/scala/decoder.scala:42:23: type SimpleDevice in package diplomacy is deprecated[0m
+[0m[[0m[33mwarn[0m] [0m[0m    val device  = new SimpleDevice( "decoder_regs", Seq( "decoder,regs0" ) )[0m
+[0m[[0m[33mwarn[0m] [0m[0m                      ^[0m
+[0m[[0m[33mwarn[0m] [0m[0m/home/michael/Documents/chipyard/generators/decoder/src/main/scala/decoder.scala:50:70: method apply in object TLClientParameters is deprecated[0m
+[0m[[0m[33mwarn[0m] [0m[0m    val nodeReadDMA = TLClientNode(Seq(TLMasterPortParameters.v1(Seq(TLClientParameters([0m
+[0m[[0m[33mwarn[0m] [0m[0m                                                                     ^[0m
+[0m[[0m[33mwarn[0m] [0m[0m/home/michael/Documents/chipyard/generators/decoder/src/main/scala/decoder.scala:53:71: method apply in object TLClientParameters is deprecated[0m
+[0m[[0m[33mwarn[0m] [0m[0m    val nodeWriteDMA = TLClientNode(Seq(TLMasterPortParameters.v1(Seq(TLClientParameters([0m
+[0m[[0m[33mwarn[0m] [0m[0m                                                                      ^[0m
+[0m[[0m[33mwarn[0m] [0m[0m/home/michael/Documents/chipyard/generators/decoder/src/main/scala/decoder.scala:56:75: method apply in object TLClientParameters is deprecated[0m
+[0m[[0m[33mwarn[0m] [0m[0m    val dummyNodeReadDMA = TLClientNode(Seq(TLMasterPortParameters.v1(Seq(TLClientParameters([0m
+[0m[[0m[33mwarn[0m] [0m[0m                                                                          ^[0m
+[0m[[0m[33mwarn[0m] [0m[0m/home/michael/Documents/chipyard/generators/decoder/src/main/scala/decoder.scala:59:76: method apply in object TLClientParameters is deprecated[0m
+[0m[[0m[33mwarn[0m] [0m[0m    val dummyNodeWriteDMA = TLClientNode(Seq(TLMasterPortParameters.v1(Seq(TLClientParameters([0m
+[0m[[0m[33mwarn[0m] [0m[0m                                                                           ^[0m
+[0m[[0m[33mwarn[0m] [0m[0m/home/michael/Documents/chipyard/generators/decoder/src/main/scala/decoder.scala:76:31: value LazyModule in package diplomacy is deprecated[0m
+[0m[[0m[33mwarn[0m] [0m[0m    lazy val readDMA        = LazyModule( new EE290CDMA( nodeReadDMA, dummyNodeWriteDMA, beatBytes, maxReadBytes, "readDMA" ) )[0m
+[0m[[0m[33mwarn[0m] [0m[0m                              ^[0m
+[0m[[0m[33mwarn[0m] [0m[0m/home/michael/Documents/chipyard/generators/decoder/src/main/scala/decoder.scala:77:31: value LazyModule in package diplomacy is deprecated[0m
+[0m[[0m[33mwarn[0m] [0m[0m    lazy val writeDMA       = LazyModule( new EE290CDMA( dummyNodeReadDMA, nodeWriteDMA, beatBytes, maxReadBytes, "writeDMA" ) )[0m
+[0m[[0m[33mwarn[0m] [0m[0m                              ^[0m
+[0m[[0m[33mwarn[0m] [0m[0m/home/michael/Documents/chipyard/generators/decoder/src/main/scala/decoder.scala:236:48: type LazyModuleImp in package diplomacy is deprecated[0m
+[0m[[0m[33mwarn[0m] [0m[0mclass DecoderModuleImp(outer: Decoder) extends LazyModuleImp(outer) {[0m
+[0m[[0m[33mwarn[0m] [0m[0m                                               ^[0m
+[0m[[0m[33mwarn[0m] [0m[0m/home/michael/Documents/chipyard/generators/decoder/src/main/scala/decoder.scala:1103:35: value LazyModule in package diplomacy is deprecated[0m
+[0m[[0m[33mwarn[0m] [0m[0m        val decoder = pbus{ fbus{ LazyModule(new Decoder( fbus.beatBytes, maxReadBytes )(p)) } }[0m
+[0m[[0m[33mwarn[0m] [0m[0m                                  ^[0m
+[0m[[0m[33mwarn[0m] [0m[0m106 feature warnings; re-run with -feature for details[0m
+[0m[[0m[33mwarn[0m] [0m[0m11 warnings found[0m

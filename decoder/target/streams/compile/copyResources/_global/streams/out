@@ -1,0 +1,4 @@
+[0m[[0m[0mdebug[0m] [0m[0mCopy resource mappings: [0m
+[0m[[0m[0mdebug[0m] [0m[0m	(/home/michael/Documents/chipyard/generators/decoder/src/main/resources/vsrc/sysc_z7test.sv,/home/michael/Documents/chipyard/generators/decoder/target/scala-2.13/classes/vsrc/sysc_z7test.sv)[0m
+[0m[[0m[0mdebug[0m] [0m[0m	(/home/michael/Documents/chipyard/generators/decoder/src/main/resources/vsrc/decoder.v.bak,/home/michael/Documents/chipyard/generators/decoder/target/scala-2.13/classes/vsrc/decoder.v.bak)[0m
+[0m[[0m[0mdebug[0m] [0m[0m	(/home/michael/Documents/chipyard/generators/decoder/src/main/resources/vsrc/decoder.v,/home/michael/Documents/chipyard/generators/decoder/target/scala-2.13/classes/vsrc/decoder.v)[0m

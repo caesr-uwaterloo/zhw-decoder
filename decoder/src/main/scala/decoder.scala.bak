@@ -1,0 +1,1283 @@
+package decoder
+
+import chisel3._
+import chisel3.util._
+import freechips.rocketchip.subsystem.{BaseSubsystem, CacheBlockBytes, FBUS}
+import org.chipsalliance.cde.config.{Parameters, Field, Config}
+import freechips.rocketchip.diplomacy._
+import freechips.rocketchip.diplomacy.{TransferSizes}
+import freechips.rocketchip.tilelink._
+import freechips.rocketchip.regmapper._
+import freechips.rocketchip.subsystem._
+import ee290cdma._
+
+case class DecoderConfig(base: BigInt, size: BigInt)
+
+case object DecoderKey extends Field[Option[DecoderConfig]](None)
+
+class Decoder( val beatBytes : Int, val maxReadBytes : Int )(implicit p: Parameters) extends LazyModule {
+    //val node = TLClientNode(Seq(TLMasterPortParameters.v1(Seq(TLClientParameters(
+    //    name = "decoder", sourceId = IdRange(0, 1))))))
+    
+    //val node2 = TLClientNode(Seq(TLMasterPortParameters.v1(Seq(TLClientParameters(
+    //    name = "decoder2", sourceId = IdRange(1, 2) )))))
+    
+    //val node2 = TLManagerNode(Seq(TLSlavePortParameters.v1(
+    //Seq(TLSlaveParameters.v1(
+    //    address            = AddressSet.misaligned( BigInt( "90000000", 16 ), BigInt( "10000000", 16) ),
+    //    resources          = new SimpleDevice("decoder_gets", Seq("decoder,get0")).reg("mem"),
+    //    supportsGet        = TransferSizes(1, 8),
+    //    fifoId             = Some(0))), // requests are handled in order
+    //beatBytes = 8)))
+  
+    val config = p(DecoderKey).get
+    
+    //val beatBytes       = 8
+    //val maxReadBytes    = 8*16
+  
+    //var base : BigInt = BigInt( "a000000", 16 )
+    var base = 0xa000000
+    //val (mem, edge) = node.out(0)
+    // Note: it might complain here for unknown reasons
+    val device  = new SimpleDevice( "decoder_regs", Seq( "decoder,regs0" ) )
+    val regNode = TLRegisterNode(
+        address = Seq(AddressSet( base, 0xfff) ),
+        device  = device,
+        beatBytes   = 8,
+        concurrency = 1
+    )
+    
+    val nodeReadDMA = TLClientNode(Seq(TLMasterPortParameters.v1(Seq(TLClientParameters(
+        name = "readDMA", sourceId = IdRange(1, 2))))))
+        
+    val nodeWriteDMA = TLClientNode(Seq(TLMasterPortParameters.v1(Seq(TLClientParameters(
+        name = "writeDMA", sourceId = IdRange(0, 1))))))
+        
+    val dummyNodeReadDMA = TLClientNode(Seq(TLMasterPortParameters.v1(Seq(TLClientParameters(
+        name = "readDMA", sourceId = IdRange(2, 3))))))
+        
+    val dummyNodeWriteDMA = TLClientNode(Seq(TLMasterPortParameters.v1(Seq(TLClientParameters(
+        name = "writeDMA", sourceId = IdRange(3, 4))))))
+        
+    val xbarNodeRead = TLXbar()
+    val xbarNodeWrite = TLXbar()
+    
+    val idNodeRead  = TLIdentityNode()
+    val idNodeWrite = TLIdentityNode()
+    
+    xbarNodeRead    := dummyNodeWriteDMA
+    xbarNodeRead    := nodeReadDMA
+    idNodeRead      := xbarNodeRead
+    
+    xbarNodeWrite   := nodeWriteDMA
+    xbarNodeWrite   := dummyNodeReadDMA
+    idNodeWrite     := xbarNodeWrite
+    
+    lazy val readDMA        = LazyModule( new EE290CDMA( nodeReadDMA, dummyNodeWriteDMA, beatBytes, maxReadBytes, "readDMA" ) )
+    lazy val writeDMA       = LazyModule( new EE290CDMA( dummyNodeReadDMA, nodeWriteDMA, beatBytes, maxReadBytes, "writeDMA" ) )
+    
+    //lazy val readDMAMod     = Module( readDMA.module )
+    //lazy val writeDMAMod    = Module( writeDMA.module )
+    
+    //lazy val readDMAMod     = readDMA.module
+    //lazy val writeDMAMod    = writeDMA.module
+
+    lazy val module         = new DecoderModuleImp(this)
+}
+
+class DecoderIO extends Bundle
+{
+    //input wire [0:0] clk;
+    val clk     = Input( Clock() )
+    //input wire [0:0] reset;
+    val reset   = Input( Bool() )
+    //input wire [15:0] maxbits;
+    val maxbits = Input( UInt( 16.W ) )
+    //input wire [15:0] minbits;
+    val minbits = Input( UInt( 16.W ) )
+    //input wire [15:0] maxprec;
+    val maxprec = Input( UInt( 16.W ) )
+    //input wire signed [15:0] minexp;
+    val minexp  = Input( SInt( 16.W ) )
+    //input wire [63:0] s_bits_data_tdata;
+    val s_bits_data_tdata   = Input( UInt( 64.W ) )
+    //input wire [0:0] s_bits_data_tlast;
+    val s_bits_data_tlast   = Input( Bool() )
+    //input wire [0:0] s_bits_valid;
+    val s_bits_valid        = Input( Bool() )
+    //output wire [0:0] s_bits_ready;
+    val s_bits_ready        = Output( Bool() )
+    //output wire [51:0] m_stream_data_frac;
+    val m_stream_data_frac  = Output( UInt( 52.W ) )
+    //output wire [10:0] m_stream_data_expo;
+    val m_stream_data_expo  = Output( UInt( 11.W ) )
+    //output wire [0:0] m_stream_data_sign;
+    val m_stream_data_sign  = Output( UInt( 1.W ) )
+    //output wire [0:0] m_stream_valid;
+    val m_stream_valid      = Output( Bool() )
+    //input wire [0:0] m_stream_ready;
+    val m_stream_ready      = Input( Bool() )
+}
+
+class DecoderV extends BlackBox with HasBlackBoxResource
+{
+    val io = IO(new DecoderIO)
+    addResource( "/vsrc/decoder.v" )
+}
+
+class BadderDebug extends Module
+{
+    val io = IO(new Bundle
+    {
+        val maxbits               = Input( UInt( 16.W ) )
+        val minbits               = Input( UInt( 16.W ) )
+        val maxprec               = Input( UInt( 16.W ) )
+        val minexp                = Input( SInt( 16.W ) )
+  
+        val s_bits_data_tdata     = Input( UInt( 64.W ) )
+        val s_bits_data_tlast     = Input( Bool() )
+        val s_bits_valid          = Input( Bool() )
+        val s_bits_ready          = Output( Bool() )
+  
+        val m_stream_data_frac    = Output( UInt( 52.W ) )
+        val m_stream_data_expo    = Output( UInt( 11.W ) )
+        val m_stream_data_sign    = Output( UInt( 1.W ) )
+  
+        val m_stream_valid        = Output( Bool() )
+        val m_stream_ready        = Input( Bool() )
+    })
+    
+    // make badder
+    io.s_bits_ready     := io.m_stream_ready
+    io.m_stream_valid   := io.s_bits_valid
+        
+    val out = Wire( UInt( 64.W ) )
+    
+    out                     := io.s_bits_data_tdata + 1.U
+    
+    //io.m_stream_data_sign   := out(0)
+    //io.m_stream_data_expo   := out( 11,1 )
+    //io.m_stream_data_frac   := out( 63, 12 )
+    
+    io.m_stream_data_sign   := out(63)
+    io.m_stream_data_expo   := out( 62, 52 )
+    io.m_stream_data_frac   := out( 51, 0 )
+}
+
+
+
+class DecoderModuleImp(outer: Decoder) extends LazyModuleImp(outer) {
+    val config = p(DecoderKey).get
+    
+    val (memWrite, edgeWrite) = outer.nodeWriteDMA.out(0)
+    val (memRead, edgeRead) = outer.nodeReadDMA.out(0)
+    
+    val bytesPerDword       = 64/8
+  
+    // Section for handling memory mapped settings
+    val maxbits             = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+    val minbits             = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+    val maxprec             = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+    val minexp              = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+  
+    val numDwordsToRead     = RegInit( 0.U( 32.W ) ) //Wire( UInt( 32.W ) ) //RegInit( 0.U( 32.W ) )
+    val start               = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+    val done                = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+  
+    val readAddress         = RegInit( 0.U( 64.W ) ) //Wire( UInt( 64.W ) ) //RegInit( 0.U( 64.W ) )
+    val writeAddress        = RegInit( 0.U( 64.W ) ) //Wire( UInt( 64.W ) ) //RegInit( 0.U( 64.W ) )
+  
+    val dummyReg            = RegInit( 1.U( 64.W ) )
+    val indicatorReg        = RegInit( 0x69.U( 64.W ) )
+    val indicatorReg2       = RegInit( 0x420.U( 64.W ) )
+    
+    outer.regNode.regmap(
+        0x00 -> Seq( RegField( 16, maxbits ) ),
+        0x02 -> Seq( RegField( 16, minbits ) ),
+        0x04 -> Seq( RegField( 16, maxprec ) ),
+        0x06 -> Seq( RegField( 16, minexp ) ),
+        0x08 -> Seq( RegField( 64, readAddress ) ),
+        0x10 -> Seq( RegField( 64, writeAddress ) ),
+        0x18 -> Seq( RegField( 32, numDwordsToRead ) ),
+        0x1c -> Seq( RegField( 16, start ) ),
+        0x1e -> Seq( RegField( 16, done ) ),
+        0x20 -> Seq( RegField( 64, dummyReg ) ),
+        0x28 -> Seq( RegField( 64, indicatorReg ) ),
+        0x30 -> Seq( RegField( 64, indicatorReg2 ) )
+    )
+    
+    // Section for handling decoder
+  
+    val s_bits_data_tdata   = Reg( UInt( 64.W ) )
+    val s_bits_data_tlast   = Reg( Bool() )
+    val s_bits_valid        = Reg( Bool() )
+    val s_bits_ready        = Wire( Bool() )
+  
+    val m_stream_data_frac  = Wire( UInt( 52.W ) )
+    val m_stream_data_expo  = Wire( UInt( 11.W ) )
+    val m_stream_data_sign  = Wire( UInt( 1.W ) )
+  
+    val m_stream_data       = Wire( UInt( 64.W ) )
+    m_stream_data           := m_stream_data_sign ## m_stream_data_expo ## m_stream_data_frac
+    //m_stream_data           := m_stream_data_frac ## m_stream_data_expo ## m_stream_data_sign
+  
+    val m_stream_valid      = Wire( Bool() )
+    val m_stream_ready      = Reg( Bool() )
+
+    val useBadder = false
+    if( useBadder )
+    {
+        val badder = Module( new BadderDebug )
+        badder.io.maxbits               := maxbits
+        badder.io.minbits               := minbits
+        badder.io.maxprec               := maxprec
+        badder.io.minexp                := minexp.asSInt
+        
+        badder.io.s_bits_data_tdata     := s_bits_data_tdata
+        badder.io.s_bits_data_tlast     := s_bits_data_tlast
+        badder.io.s_bits_valid          := s_bits_valid
+        s_bits_ready                    := badder.io.s_bits_ready
+        
+        m_stream_data_frac              := badder.io.m_stream_data_frac
+        m_stream_data_expo              := badder.io.m_stream_data_expo
+        m_stream_data_sign              := badder.io.m_stream_data_sign
+        
+        m_stream_valid                  := badder.io.m_stream_valid
+        badder.io.m_stream_ready        := m_stream_ready
+    }
+    else // the real thing
+    {
+        val realDecoder = Module( new DecoderV )
+        withClockAndReset(clock, reset)
+        {
+            val manualReset         = RegInit( false.B )
+            val manualResetCopy     = Reg( Bool() )
+            
+            manualResetCopy         := manualReset
+            realDecoder.io.clk      := clock
+            realDecoder.io.reset    := !reset.asBool && manualResetCopy
+            manualReset             := true.B
+        }
+        realDecoder.io.maxbits              := maxbits
+        realDecoder.io.minbits              := minbits
+        realDecoder.io.maxprec              := maxprec
+        realDecoder.io.minexp               := minexp.asSInt
+        
+        realDecoder.io.s_bits_data_tdata    := s_bits_data_tdata
+        realDecoder.io.s_bits_data_tlast    := s_bits_data_tlast
+        realDecoder.io.s_bits_valid         := s_bits_valid
+        s_bits_ready                        := realDecoder.io.s_bits_ready
+        
+        m_stream_data_frac                  := realDecoder.io.m_stream_data_frac
+        m_stream_data_expo                  := realDecoder.io.m_stream_data_expo
+        m_stream_data_sign                  := realDecoder.io.m_stream_data_sign
+        
+        m_stream_valid                      := realDecoder.io.m_stream_valid
+        realDecoder.io.m_stream_ready       := m_stream_ready
+    }
+    
+    // Section to handle DMAs
+    
+    //outer.idNodeRead  := outer.readDMA.xbar_node
+    //outer.idNodeWrite := outer.writeDMA.xbar_node
+    
+    val paddrBits   = 64
+    
+    //val io_readDMA = IO(new Bundle {
+    //  val read = Flipped( new EE290CDMAReadIO(paddrBits, outer.beatBytes, outer.maxReadBytes) )
+    //  val write = Flipped( new EE290CDMAWriteIO(paddrBits, outer.beatBytes) )
+    //  val readBusy = Input(Bool())
+    //  val writeBusy = Input(Bool())
+    //})
+    
+    //val io_writeDMA = IO(new Bundle {
+    //  val read = Flipped( new EE290CDMAReadIO(paddrBits, outer.beatBytes, outer.maxReadBytes) )
+    //  val write = Flipped( new EE290CDMAWriteIO(paddrBits, outer.beatBytes) )
+    //  val readBusy = Input(Bool())
+    //  val writeBusy = Input(Bool())
+    //})
+    
+    // Ones that stay as 0
+    val readDMA_io_write_req_valid              = RegInit( false.B )
+    val readDMA_io_write_req_bits_addr          = RegInit( 0.U(64.W) )
+    val readDMA_io_write_req_bits_data          = RegInit( 0.U )
+    val readDMA_io_write_req_bits_totalBytes    = RegInit( 0.U )
+    
+    val writeDMA_io_read_req_valid              = RegInit( false.B )
+    val writeDMA_io_read_req_bits_addr          = RegInit( 0.U(64.W) )
+    val writeDMA_io_read_req_bits_totalBytes    = RegInit( 0.U )
+    val writeDMA_io_read_resp_ready             = RegInit( false.B )
+    val writeDMA_io_read_queue_ready            = RegInit( false.B )
+    
+    // Ones we want to control
+    val readDMA_io_read_req_valid               = RegInit( false.B )
+    val readDMA_io_read_req_bits_addr           = RegInit( 0.U(64.W) )
+    val readDMA_io_read_req_bits_totalBytes     = RegInit( 0.U )
+    val readDMA_io_read_resp_ready              = RegInit( false.B )
+    val readDMA_io_read_queue_ready             = RegInit( false.B )
+    
+    val writeDMA_io_write_req_valid             = RegInit( false.B )
+    val writeDMA_io_write_req_bits_addr         = RegInit( 0.U(64.W) )
+    val writeDMA_io_write_req_bits_data         = RegInit( 0.U )
+    val writeDMA_io_write_req_bits_totalBytes   = RegInit( 0.U )
+    
+    // Things we want to observe
+    val readDMA_io_read_req_ready               = Wire( Bool() )
+    val readDMA_io_read_resp_valid              = Wire( Bool() )
+    val readDMA_io_read_resp_bits_bytesRead     = Wire( UInt((log2Ceil(outer.maxReadBytes+1)).W) )
+    val readDMA_io_read_queue_valid             = Wire( Bool() )
+    val readDMA_io_read_queue_bits              = Wire( UInt((outer.beatBytes*8).W) )
+    
+    val writeDMA_io_write_req_ready             = Wire( Bool() )
+    
+    //val readDMA     = outer.readDMA.module
+    //val writeDMA    = outer.writeDMA.module
+    
+    val readDMA     = Module( outer.readDMA.module )
+    val writeDMA    = Module( outer.writeDMA.module )
+    
+    //val readDMA     = outer.readDMAMod
+    //val writeDMA    = outer.writeDMAMod
+    
+    // Write the zeros
+    readDMA.io.write.req.valid              := readDMA_io_write_req_valid
+    readDMA.io.write.req.bits.addr          := readDMA_io_write_req_bits_addr
+    readDMA.io.write.req.bits.data          := readDMA_io_write_req_bits_data
+    readDMA.io.write.req.bits.totalBytes    := readDMA_io_write_req_bits_totalBytes
+    
+    writeDMA.io.read.req.valid              := writeDMA_io_read_req_valid
+    writeDMA.io.read.req.bits.addr          := writeDMA_io_read_req_bits_addr
+    writeDMA.io.read.req.bits.totalBytes    := writeDMA_io_read_req_bits_totalBytes
+    writeDMA.io.read.resp.ready             := writeDMA_io_read_resp_ready
+    writeDMA.io.read.queue.ready            := writeDMA_io_read_queue_ready
+    
+    // Write the control inputs
+    readDMA.io.read.req.valid               := readDMA_io_read_req_valid
+    readDMA.io.read.req.bits.addr           := readDMA_io_read_req_bits_addr
+    readDMA.io.read.req.bits.totalBytes     := readDMA_io_read_req_bits_totalBytes
+    readDMA.io.read.resp.ready              := readDMA_io_read_resp_ready
+    readDMA.io.read.queue.ready             := readDMA_io_read_queue_ready
+    
+    writeDMA.io.write.req.valid             := writeDMA_io_write_req_valid
+    writeDMA.io.write.req.bits.addr         := writeDMA_io_write_req_bits_addr
+    writeDMA.io.write.req.bits.data         := writeDMA_io_write_req_bits_data
+    writeDMA.io.write.req.bits.totalBytes   := writeDMA_io_write_req_bits_totalBytes
+    
+    readDMA_io_read_req_ready               := readDMA.io.read.req.ready
+    readDMA_io_read_resp_valid              := readDMA.io.read.resp.valid
+    readDMA_io_read_resp_bits_bytesRead     := readDMA.io.read.resp.bits.bytesRead
+    readDMA_io_read_queue_valid             := readDMA.io.read.queue.valid
+    readDMA_io_read_queue_bits              := readDMA.io.read.queue.bits
+    
+    writeDMA_io_write_req_ready             := writeDMA.io.write.req.ready
+    
+    // Section to handle DMA controlling nodes
+    
+    //val io_writeDMA = IO( new Bundle
+    //{
+    //    val mem_a_valid         = Output( Bool() )
+    //    val mem_a_bits_source   = Output( UInt( 16.W ) )
+    //    val mem_a_bits_address  = Output( UInt( addr_length.W ) )
+    //    val mem_a_bits_lgSize   = Output( UInt( log2Ceil(beatBytes+1).W ) )
+    //    val mem_a_bits_data1    = Output( UInt( data_length.W ) )
+    //    val mem_a_bits_data2    = Output( UInt( data_length.W ) )
+    //    val mem_a_bits_mask     = Output( UInt( data_length.W ) )
+    //    val select_cond         = Output( Bool() )
+    //    val edge_done           = Input( Bool() )
+    //    val mem_d_ready         = Output( Bool() )
+    //    val mem_d_fire          = Input( Bool() )
+    //} )
+    
+    val put = edgeWrite.Put(
+        fromSource  = writeDMA.io_writeDMA.mem_a_bits_source, // TODO: Hardcoded to 0 for now, but will want to parameterize
+        toAddress   = writeDMA.io_writeDMA.mem_a_bits_address,
+        lgSize      = writeDMA.io_writeDMA.mem_a_bits_lgSize,
+        data        = writeDMA.io_writeDMA.mem_a_bits_data1 )._2
+    
+    val putPartial = edgeWrite.Put(
+        fromSource  = writeDMA.io_writeDMA.mem_a_bits_source,
+        toAddress   = writeDMA.io_writeDMA.mem_a_bits_address,
+        lgSize      = writeDMA.io_writeDMA.mem_a_bits_lgSize,
+        data        = writeDMA.io_writeDMA.mem_a_bits_data2,
+        mask        = writeDMA.io_writeDMA.mem_a_bits_mask)._2
+    
+    memWrite.a.valid    := writeDMA.io_writeDMA.mem_a_valid
+    memWrite.a.bits     := Mux(writeDMA.io_writeDMA.select_cond, putPartial, put)
+    
+    memWrite.d.ready    := writeDMA.io_writeDMA.mem_d_ready
+    
+    writeDMA.io_writeDMA.edge_done  := edgeWrite.done(memWrite.a)
+    writeDMA.io_writeDMA.mem_d_fire := memWrite.d.fire
+    
+    // TODO: double check that these are fine
+    readDMA.io_writeDMA.edge_done   := false.B
+    readDMA.io_writeDMA.mem_d_fire  := false.B
+    
+    //val io_readDMA = IO( new Bundle
+    //{
+    //    val mem_a_valid         = Output( Bool() )
+    //    val mem_a_bits_source   = Output( UInt( 16.W ) )
+    //    val mem_a_bits_address  = Output( UInt( addr_length.W ) )
+    //    val mem_a_bits_lgSize   = Output( UInt( log2Ceil(beatBytes+1).W ) )
+    //    val edge_done           = Input( Bool() )
+    //    val mem_d_ready         = Output( Bool() )
+    //    val mem_d_fire          = Input( Bool() )
+    //    val mem_d_bits_data     = Input( UInt( data_length.W ) )
+    //} )
+    
+    memRead.a.valid := readDMA.io_readDMA.mem_a_valid
+    memRead.a.bits  := edgeRead.Get(
+        fromSource  = readDMA.io_readDMA.mem_a_bits_source, // TODO: Hardcoded to not conflict with writer, but should parameterize (as will be connected to bus)
+        toAddress   = readDMA.io_readDMA.mem_a_bits_address,
+        lgSize      = readDMA.io_readDMA.mem_a_bits_lgSize)._2 // Always get a full beatBytes bytes, even if not used in packet
+    
+    readDMA.io_readDMA.edge_done        := edgeRead.done(memRead.a)
+    memRead.d.ready                     := readDMA.io_readDMA.mem_d_ready
+    readDMA.io_readDMA.mem_d_fire       := memRead.d.fire
+    readDMA.io_readDMA.mem_d_bits_data  := memRead.d.bits.data
+    
+    when( memRead.d.fire )
+    {
+        //indicatorReg    := memRead.d.bits.data
+    }
+    when( readDMA_io_read_resp_valid )
+    {
+        //indicatorReg2   := readDMA.io.read.req.bits.totalBytes
+        //indicatorReg2   := readDMA_io_read_resp_bits_bytesRead
+        //indicatorReg2   := readDMA_io_read_queue_bits
+    }
+    
+    // TODO: double check that these are fine
+    writeDMA.io_readDMA.edge_done       := false.B
+    writeDMA.io_readDMA.mem_d_fire      := false.B
+    writeDMA.io_readDMA.mem_d_bits_data := 0.U
+    
+    // Section to handle wiring between components
+    
+    val readIter            = Reg( UInt( log2Ceil(  outer.maxReadBytes/bytesPerDword + 1 ).W ) )
+    val readBuffer          = Reg( Vec( outer.maxReadBytes/bytesPerDword, UInt( (bytesPerDword*8).W ) ) )
+    
+    val readDone            = Reg( Bool() )
+    
+    val writeIter           = Reg( UInt( log2Ceil(  outer.maxReadBytes/bytesPerDword + 1 ).W ) )
+    val writeBuffer         = Reg( Vec( outer.maxReadBytes/bytesPerDword, UInt( (bytesPerDword*8).W ) ) )
+    
+    val writeDone           = Reg( Bool() )
+    
+    val writeIP             = RegInit( false.B )
+    val qdepth              = 8
+    val writeSettingsQueue  = Module( new Queue( Vec( 2, UInt( 64.W ) ), qdepth ) )
+    val writeNumDwordsQ     = RegInit( 0x10.U(32.W) )
+    //val writeAddrQ          = Reg( UInt( 64.W ) )
+    val writeAddrQ          = RegInit( 0x88000000L.U(64.W) )
+    
+    readDone                := readIter  >= numDwordsToRead
+    writeDone               := writeIter >= writeNumDwordsQ
+    
+    val canStartNewRequest  = start =/= 0.U && readDMA_io_read_req_ready
+    
+    readDMA_io_read_req_valid               := canStartNewRequest
+    readDMA_io_read_req_bits_addr           := readAddress
+    readDMA_io_read_req_bits_totalBytes     := numDwordsToRead*bytesPerDword.U
+    readDMA_io_read_resp_ready              := true.B
+    readDMA_io_read_queue_ready             := true.B
+    
+    //writeDMA_io_write_req_valid             := writeDone
+    writeDMA_io_write_req_bits_addr         := writeAddrQ
+    //writeDMA_io_write_req_bits_data         := writeBuffer
+    //writeDMA_io_write_req_bits_totalBytes   := numDwordsToRead*bytesPerDword.U
+    
+    writeDMA_io_write_req_valid             := m_stream_valid
+    writeDMA_io_write_req_bits_data         := m_stream_data
+    writeDMA_io_write_req_bits_totalBytes   := bytesPerDword.U
+    m_stream_ready                          := writeDMA_io_write_req_ready
+    
+    when( writeDMA_io_write_req_ready && writeDMA_io_write_req_valid )
+    {
+        writeAddrQ := writeAddrQ + 8.U
+    }
+    
+    //val readDMA_io_read_req_valid               = RegInit( false.B )
+    //val readDMA_io_read_req_bits_addr           = RegInit( 0.U(64.W) )
+    //val readDMA_io_read_req_bits_totalBytes     = RegInit( 0.U )
+    //val readDMA_io_read_resp_ready              = RegInit( false.B )
+    //val readDMA_io_read_queue_ready             = RegInit( false.B )
+     
+    //val writeDMA_io_write_req_valid             = RegInit( false.B )
+    //val writeDMA_io_write_req_bits_addr         = RegInit( 0.U(64.W) )
+    //val writeDMA_io_write_req_bits_data         = RegInit( 0.U )
+    //val writeDMA_io_write_req_bits_totalBytes   = RegInit( 0.U )
+    
+    // Things we want to observe
+    //val readDMA_io_read_req_ready               = Wire( Bool() )
+    //val readDMA_io_read_resp_valid              = Wire( Bool() )
+    //val readDMA_io_read_queue_valid             = Wire( Bool() )
+    //val readDMA_io_read_queue_bits              = Wire( UInt((beatBytes*8).W) )
+    
+    //val writeDMA_io_write_req_ready             = Wire( Bool() )
+    
+    //val writeSettingsQueue  = Module( new Queue( Vec( 2, UInt( 64.W ) ), qdepth ) )
+    //val writeNumDwords      = Reg( UInt( 32.W ) )
+    //val writeAddr           = Reg( UInt( 64.W ) )
+    
+    val writeIPCopy         = Reg( Bool() )
+    
+    writeIPCopy             := writeIP
+    
+    writeSettingsQueue.io.deq.ready := !writeIPCopy
+    
+    when( !writeIP && writeSettingsQueue.io.deq.valid )
+    {
+        writeAddrQ      := writeSettingsQueue.io.deq.bits(0)
+        writeNumDwordsQ := writeSettingsQueue.io.deq.bits(1)
+        writeIP         := true.B
+        
+        //indicatorReg    := writeAddrQ
+        //indicatorReg2   := writeNumDwordsQ
+    }
+    
+    val observeReset    = Wire( Bool() )
+    withClockAndReset( clock, reset )
+    {
+        observeReset    := reset.asBool
+    }
+    
+    val rvrwDecoderFlags    = m_stream_valid | ( m_stream_ready << 1.U ) | ( s_bits_valid << 2.U ) | ( s_bits_ready << 3.U )
+    val otherFlags          = writeIP | ( canStartNewRequest << 1.U ) | ( observeReset << 2.U )
+    
+    //indicatorReg    := writeAddrQ
+    //indicatorReg    := maxbits | ( minbits << 16.U ) | ( maxprec << 32.U ) | ( minexp << 48.U )
+    //indicatorReg2   := ( numDwordsToRead << 32.U ) | ( readIter << 24.U ) | ( otherFlags << 20.U ) | ( rvrwDecoderFlags << 16.U ) | ( writeNumDwordsQ << 8.U ) | writeIter
+    
+    
+    val execOnce    = RegInit( true.B )
+    
+    when( execOnce && readDMA_io_read_resp_valid )
+    {
+        indicatorReg    := readDMA_io_read_resp_bits_bytesRead
+        indicatorReg2   := readDMA.io.read.req.bits.addr
+        execOnce        := false.B
+    }
+    
+    
+    when( readDone )
+    {
+        readIter    := 0.U
+        readDone    := false.B
+    }
+    
+    when( writeDone )
+    {
+        writeIter       := 0.U
+        writeDone       := false.B
+        done            := done + 1.U
+        writeIP         := false.B
+        
+        //indicatorReg2   := 1001.U
+    }
+    
+    // Assume that ready is always asserted
+    writeSettingsQueue.io.enq.valid     := start =/= 0.U && readDMA_io_read_req_ready
+    writeSettingsQueue.io.enq.bits(0)   := writeAddress
+    writeSettingsQueue.io.enq.bits(1)   := numDwordsToRead
+    
+    // if there is a request to start another
+    // and the read DMA is ready for another request
+    // then start a new request
+    when( start =/= 0.U && readDMA_io_read_req_ready )
+    {
+        dummyReg    := dummyReg << 1.U
+        start       := 0.U
+    }
+    
+    //val s_bits_data_tdata   = Reg( UInt( 64.W ) )
+    //val s_bits_data_tlast   = Reg( Bool() )
+    //val s_bits_valid        = Reg( Bool() )
+    //val s_bits_ready        = Wire( Bool() )
+    
+    readDMA_io_read_queue_ready := s_bits_ready
+    s_bits_valid                := readDMA_io_read_queue_valid
+    s_bits_data_tdata           := readDMA_io_read_queue_bits
+    s_bits_data_tlast           := (readIter + 1.U) % 16.U === 0.U 
+    
+    when( readDMA_io_read_queue_ready && s_bits_valid )
+    {
+        readIter        := readIter + 1.U
+    }
+    
+    when( m_stream_valid && m_stream_ready )
+    {
+        //writeBuffer( writeIter )    := m_stream_data
+        writeIter                   := writeIter + 1.U
+    }
+    
+    //indicatorReg    := s_bits_data_tdata
+    //indicatorReg2   := ( memRead.a.ready << 0.U ) | ( memRead.a.valid << 1.U ) | ( memRead.d.ready << 2.U ) | ( memRead.d.valid << 3.U ) |
+    //                    ( memWrite.a.ready << 4.U ) | ( memWrite.a.valid << 5.U ) | ( memWrite.d.ready << 6.U ) | ( memWrite.d.valid << 7.U )
+}
+
+
+/*
+class DecoderModuleImp(outer: Decoder) extends LazyModuleImp(outer) {
+    val config = p(DecoderKey).get
+
+    val (mem, edge)     = outer.node.out(0)
+    //val (mem2, edge2)   = outer.node2.out(0)
+    //val (mem2, edge2)   = outer.node2.in(0)
+    val addrBits        = edge.bundle.addressBits
+    val blockBytes      = p(CacheBlockBytes)
+  
+    //var settings : Settings = null
+
+    require(config.size % blockBytes == 0)
+  
+    val maxbits             = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+    val minbits             = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+    val maxprec             = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+    val minexp              = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+  
+    val numDwordsToRead     = RegInit( 0.U( 32.W ) ) //Wire( UInt( 32.W ) ) //RegInit( 0.U( 32.W ) )
+    val start               = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+    val done                = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+  
+    val readAddress         = RegInit( 0.U( 64.W ) ) //Wire( UInt( 64.W ) ) //RegInit( 0.U( 64.W ) )
+    val writeAddress        = RegInit( 0.U( 64.W ) ) //Wire( UInt( 64.W ) ) //RegInit( 0.U( 64.W ) )
+  
+    //lazy val settingsRegs = LazyModule( new Settings()( p ) )
+  
+    //maxbits := settingsRegs.module.maxbits
+  
+    val dummyReg            = RegInit( 1.U( 64.W ) )
+    val indicatorReg        = RegInit( 0x69.U( 16.W ) )
+  
+    outer.regNode.regmap(
+        0x00 -> Seq( RegField( 16, maxbits ) ),
+        0x02 -> Seq( RegField( 16, minbits ) ),
+        0x04 -> Seq( RegField( 16, maxprec ) ),
+        0x06 -> Seq( RegField( 16, minexp ) ),
+        0x08 -> Seq( RegField( 64, readAddress ) ),
+        0x10 -> Seq( RegField( 64, writeAddress ) ),
+        0x18 -> Seq( RegField( 32, numDwordsToRead ) ),
+        0x1c -> Seq( RegField( 16, start ) ),
+        0x1e -> Seq( RegField( 16, done ) ),
+        0x20 -> Seq( RegField( 64, dummyReg ) ),
+        0x28 -> Seq( RegField( 16, indicatorReg ) )
+    )
+  
+    val s_bits_data_tdata   = Reg( UInt( 64.W ) )
+    val s_bits_data_tlast   = Reg( Bool() )
+    val s_bits_valid        = Reg( Bool() )
+    val s_bits_ready        = Wire( Bool() )
+  
+    val m_stream_data_frac  = Wire( UInt( 52.W ) )
+    val m_stream_data_expo  = Wire( UInt( 11.W ) )
+    val m_stream_data_sign  = Wire( UInt( 1.W ) )
+  
+    val m_stream_data       = Wire( UInt( 64.W ) )
+    m_stream_data           := m_stream_data_sign ## m_stream_data_expo ## m_stream_data_frac
+  
+    val m_stream_valid      = Wire( Bool() )
+    val m_stream_ready      = Reg( Bool() )
+
+    val useBadder = true
+    if( useBadder )
+    {
+        val badder = Module( new BadderDebug )
+        badder.io.maxbits             := maxbits
+        badder.io.minbits             := minbits
+        badder.io.maxprec             := maxprec
+        badder.io.minexp              := minexp.asSInt
+      
+        badder.io.s_bits_data_tdata   := s_bits_data_tdata
+        badder.io.s_bits_data_tlast   := s_bits_data_tlast
+        badder.io.s_bits_valid        := s_bits_valid
+        s_bits_ready                  := badder.io.s_bits_ready
+      
+        m_stream_data_frac            := badder.io.m_stream_data_frac
+        m_stream_data_expo            := badder.io.m_stream_data_expo
+        m_stream_data_sign            := badder.io.m_stream_data_sign
+      
+        m_stream_valid                := badder.io.m_stream_valid
+        badder.io.m_stream_ready      := m_stream_ready
+    }
+
+    val s_init :: s_write :: s_resp :: s_done :: Nil = Enum(4)
+    val state = RegInit(s_done)
+    
+    //val s_init :: s_read_req :: s_read_readin :: s_done :: Nil = Enum(4)
+    //val state = RegInit(s_done)
+
+    val addr = Reg(UInt(addrBits.W))
+    val bytesLeft = Reg(UInt(log2Ceil(config.size+1).W))
+    
+    when( start =/= 0.U )
+    {
+        state       := s_init
+        dummyReg    := dummyReg << 1.U
+        start       := 0.U
+    }
+    .otherwise // start === 0.U
+    {
+        
+    }
+    
+    //when (edge.done(mem.a) || ( mem.a.ready && mem.a.valid ) ) {
+    //    addr        := addr + blockBytes.U
+    //    bytesLeft   := bytesLeft - blockBytes.U
+    //    state       := s_resp
+    //}
+
+    mem.a.valid := state === s_write
+    
+    //mem.a.bits  := edge.Put(
+    //    fromSource = 0.U,
+    //    toAddress = addr,
+    //    lgSize = log2Ceil(blockBytes).U,
+    //    data = 69420.U)._2
+        
+    mem.a.bits  := edge.Get(
+        fromSource = 0.U,
+        toAddress = addr,
+        lgSize = log2Ceil(blockBytes).U)._2
+        
+    //mem.a.bits  := edge.Get(
+    //    fromSource = 1.U,
+    //    toAddress = (addr-0x1000.U),
+    //    lgSize = log2Ceil(blockBytes).U
+    //    )._2
+    //mem.d.ready := true.B
+    
+    //when (edge.done(mem.a)) {
+    //    addr        := addr + blockBytes.U
+    //    bytesLeft   := bytesLeft - blockBytes.U
+    //    state       := s_resp
+    //}
+    
+    //when (edge.done(mem.a) || (state === s_write) ) {
+    //    addr        := addr + blockBytes.U
+    //    bytesLeft   := bytesLeft - blockBytes.U
+    //    state       := s_resp
+    //}
+    //mem.d.ready := state === s_resp
+    
+    when (edge.done(mem.a) || ( mem.a.ready && mem.a.valid ) ) {
+        addr        := addr + blockBytes.U
+        bytesLeft   := bytesLeft - blockBytes.U
+        state       := s_resp
+    }
+
+    when (state === s_init) {
+        //addr        := config.base.U
+        addr        := readAddress
+        bytesLeft   := blockBytes.U
+        //bytesLeft   := numDwordsToRead *(64/8).U
+        //bytesLeft   := config.size.U
+        state       := s_write
+        //state       := s_read_req
+    }
+
+    when (mem.d.fire) {
+        //state := Mux(bytesLeft === 0.U, s_done, s_write)
+        state   := s_done
+    }
+}
+*/
+
+/*
+class DecoderModuleImp(outer: Decoder) extends LazyModuleImp(outer) {
+    val config = p(DecoderKey).get
+
+    val (mem, edge)     = outer.node.out(0)
+    //val (mem2, edge2)   = outer.node2.out(0)
+    //val (mem2, edge2)   = outer.node2.in(0)
+    val addrBits        = edge.bundle.addressBits
+    val blockBytes      = p(CacheBlockBytes)
+  
+    //var settings : Settings = null
+
+    require(config.size % blockBytes == 0)
+  
+    val maxbits             = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+    val minbits             = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+    val maxprec             = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+    val minexp              = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+  
+    val numDwordsToRead     = RegInit( 0.U( 32.W ) ) //Wire( UInt( 32.W ) ) //RegInit( 0.U( 32.W ) )
+    val start               = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+    val done                = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+  
+    val readAddress         = RegInit( 0.U( 64.W ) ) //Wire( UInt( 64.W ) ) //RegInit( 0.U( 64.W ) )
+    val writeAddress        = RegInit( 0.U( 64.W ) ) //Wire( UInt( 64.W ) ) //RegInit( 0.U( 64.W ) )
+  
+    //lazy val settingsRegs = LazyModule( new Settings()( p ) )
+  
+    //maxbits := settingsRegs.module.maxbits
+  
+    val dummyReg            = RegInit( 1.U( 64.W ) )
+    val indicatorReg        = RegInit( 0x69.U( 16.W ) )
+  
+    outer.regNode.regmap(
+        0x00 -> Seq( RegField( 16, maxbits ) ),
+        0x02 -> Seq( RegField( 16, minbits ) ),
+        0x04 -> Seq( RegField( 16, maxprec ) ),
+        0x06 -> Seq( RegField( 16, minexp ) ),
+        0x08 -> Seq( RegField( 64, readAddress ) ),
+        0x10 -> Seq( RegField( 64, writeAddress ) ),
+        0x18 -> Seq( RegField( 32, numDwordsToRead ) ),
+        0x1c -> Seq( RegField( 16, start ) ),
+        0x1e -> Seq( RegField( 16, done ) ),
+        0x20 -> Seq( RegField( 64, dummyReg ) ),
+        0x28 -> Seq( RegField( 16, indicatorReg ) )
+    )
+  
+    val s_bits_data_tdata   = Reg( UInt( 64.W ) )
+    val s_bits_data_tlast   = Reg( Bool() )
+    val s_bits_valid        = Reg( Bool() )
+    val s_bits_ready        = Wire( Bool() )
+  
+    val m_stream_data_frac  = Wire( UInt( 52.W ) )
+    val m_stream_data_expo  = Wire( UInt( 11.W ) )
+    val m_stream_data_sign  = Wire( UInt( 1.W ) )
+  
+    val m_stream_data       = Wire( UInt( 64.W ) )
+    m_stream_data           := m_stream_data_sign ## m_stream_data_expo ## m_stream_data_frac
+  
+    val m_stream_valid      = Wire( Bool() )
+    val m_stream_ready      = Reg( Bool() )
+
+    val useBadder = true
+    if( useBadder )
+    {
+        val badder = Module( new BadderDebug )
+        badder.io.maxbits             := maxbits
+        badder.io.minbits             := minbits
+        badder.io.maxprec             := maxprec
+        badder.io.minexp              := minexp.asSInt
+      
+        badder.io.s_bits_data_tdata   := s_bits_data_tdata
+        badder.io.s_bits_data_tlast   := s_bits_data_tlast
+        badder.io.s_bits_valid        := s_bits_valid
+        s_bits_ready                  := badder.io.s_bits_ready
+      
+        m_stream_data_frac            := badder.io.m_stream_data_frac
+        m_stream_data_expo            := badder.io.m_stream_data_expo
+        m_stream_data_sign            := badder.io.m_stream_data_sign
+      
+        m_stream_valid                := badder.io.m_stream_valid
+        badder.io.m_stream_ready      := m_stream_ready
+    }
+
+    //val s_init :: s_write :: s_resp :: s_done :: Nil = Enum(4)
+    //val state = RegInit(s_done)
+    
+    //val s_init :: s_read_req :: s_read_readin :: s_done :: Nil = Enum(4)
+    //val state = RegInit(s_done)
+
+    val addr = Reg(UInt(addrBits.W))
+    val bytesLeft = Reg(UInt(log2Ceil(config.size+1).W))
+    
+    when( start =/= 0.U )
+    {
+        state       := s_init
+        dummyReg    := dummyReg << 1.U
+        start       := 0.U
+    }
+    .otherwise // start === 0.U
+    {
+        
+    }
+    
+
+    //mem.a.valid := state === s_write
+    
+    //mem.a.bits  := edge.Put(
+    //    fromSource = 0.U,
+    //    toAddress = addr,
+    //    lgSize = log2Ceil(blockBytes).U,
+    //    data = 69420.U)._2
+        
+    //mem.a.bits  := edge.Get(
+    //    fromSource = 1.U,
+    //    toAddress = (addr-0x1000.U),
+    //    lgSize = log2Ceil(blockBytes).U
+    //    )._2
+    //mem.d.ready := state === s_resp
+    mem.d.ready := true.B
+    
+    when (mem2.a.ready && mem2.a.valid) {
+        addr        := addr + blockBytes.U
+        bytesLeft   := bytesLeft - blockBytes.U
+        state       := s_read_readin
+    }
+    
+    //mem2.a.valid := state === s_write
+    mem2.a.valid    := state === s_read_req
+    mem2.a.bits     := edge2.Get(
+        fromSource = 1.U,
+        toAddress = addr,
+        lgSize = log2Ceil(blockBytes).U
+        )._2
+        
+    //when( mem2.a.fire )
+    //{
+    //    state   := s_read_readin
+    //}
+    
+    //mem2.a.bits := edge2.Put(
+    //    fromSource = 0.U,
+    //    toAddress = addr,
+    //    lgSize = log2Ceil(blockBytes).U,
+    //    data = 69420.U)._2
+    mem2.d.ready := true.B
+
+    when (state === s_init) {
+        //addr        := config.base.U
+        addr        := readAddress
+        bytesLeft   := log2Ceil(64).U //numDwordsToRead << log2Ceil(64)
+        //bytesLeft   := config.size.U
+        //state       := s_write
+        state       := s_read_req
+    }
+
+    when (mem.d.fire) {
+        //state := Mux(bytesLeft === 0.U, s_done, s_write)
+    }
+    
+    //indicatorReg    := indicatorReg | ( mem.d.fire && mem2.d.fire ).asUInt
+    when( mem2.d.fire )
+    {
+        indicatorReg    := mem2.d.bits.data(15,0)
+        state           := Mux(bytesLeft === 0.U, s_done, s_read_req)
+    }
+}
+*/
+
+
+/*
+class DecoderModuleImp(outer: Decoder) extends LazyModuleImp(outer) {
+    val config = p(DecoderKey).get
+
+    val (mem, edge) = outer.node.out(0)
+    //val (mem2, edge2) = outer.node.in(0)
+    val addrBits    = edge.bundle.addressBits
+    val blockBytes  = p(CacheBlockBytes)
+  
+    //var settings : Settings = null
+
+    require(config.size % blockBytes == 0)
+  
+    val maxbits             = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+    val minbits             = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+    val maxprec             = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+    val minexp              = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+  
+    val numDwordsToRead     = RegInit( 0.U( 32.W ) ) //Wire( UInt( 32.W ) ) //RegInit( 0.U( 32.W ) )
+    val start               = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+    val done                = RegInit( 0.U( 16.W ) ) //Wire( UInt( 16.W ) ) //RegInit( 0.U( 16.W ) )
+  
+    val readAddress         = RegInit( 0.U( 64.W ) ) //Wire( UInt( 64.W ) ) //RegInit( 0.U( 64.W ) )
+    val writeAddress        = RegInit( 0.U( 64.W ) ) //Wire( UInt( 64.W ) ) //RegInit( 0.U( 64.W ) )
+  
+    //lazy val settingsRegs = LazyModule( new Settings()( p ) )
+  
+    //maxbits := settingsRegs.module.maxbits
+  
+    val dummyReg            = RegInit( 1.U( 64.W ) )
+  
+    outer.regNode.regmap(
+        0x00 -> Seq( RegField( 16, maxbits ) ),
+        0x02 -> Seq( RegField( 16, minbits ) ),
+        0x04 -> Seq( RegField( 16, maxprec ) ),
+        0x06 -> Seq( RegField( 16, minexp ) ),
+        0x08 -> Seq( RegField( 64, readAddress ) ),
+        0x10 -> Seq( RegField( 64, writeAddress ) ),
+        0x18 -> Seq( RegField( 32, numDwordsToRead ) ),
+        0x1c -> Seq( RegField( 16, start ) ),
+        0x1e -> Seq( RegField( 16, done ) ),
+        0x20 -> Seq( RegField( 64, dummyReg ) )
+    )
+  
+    val s_bits_data_tdata       = Reg( UInt( 64.W ) )
+    val s_bits_data_tlast       = Reg( Bool() )
+    val s_bits_valid            = Reg( Bool() )
+    val s_bits_ready            = Wire( Bool() )
+  
+    val m_stream_data_frac      = Wire( UInt( 52.W ) )
+    val m_stream_data_expo      = Wire( UInt( 11.W ) )
+    val m_stream_data_sign      = Wire( UInt( 1.W ) )
+  
+    val m_stream_data           = Wire( UInt( 64.W ) )
+    m_stream_data               := m_stream_data_sign ## m_stream_data_expo ## m_stream_data_frac
+  
+    val m_stream_valid          = Wire( Bool() )
+    val m_stream_ready          = Reg( Bool() )
+    
+    val dwordsLeftToRead        = Reg( UInt( 32.W ) )
+    val dwordsLeftToWrite       = Reg( UInt( 32.W ) )
+
+    val useBadder = true
+    if( useBadder )
+    {
+        val badder = Module( new BadderDebug )
+        badder.io.maxbits             := maxbits
+        badder.io.minbits             := minbits
+        badder.io.maxprec             := maxprec
+        badder.io.minexp              := minexp.asSInt
+      
+        badder.io.s_bits_data_tdata   := s_bits_data_tdata
+        badder.io.s_bits_data_tlast   := s_bits_data_tlast
+        badder.io.s_bits_valid        := s_bits_valid
+        s_bits_ready                  := badder.io.s_bits_ready
+        
+        m_stream_data_frac            := badder.io.m_stream_data_frac
+        m_stream_data_expo            := badder.io.m_stream_data_expo
+        m_stream_data_sign            := badder.io.m_stream_data_sign
+      
+        m_stream_valid                := badder.io.m_stream_valid
+        badder.io.m_stream_ready      := m_stream_ready
+    }
+
+    val s_idle :: s_init :: s_read :: s_write :: Nil = Enum(4)
+    
+    val state = RegInit( s_idle )
+    
+    val ss_read_init :: ss_read_req :: ss_read_await :: ss_read_readin :: Nil = Enum(4)
+    val ss_write_init :: ss_write_req :: ss_write_ack :: Nil = Enum(3)
+    
+    val substate_read   = RegInit( ss_read_init )
+    val substate_write  = RegInit( ss_write_init )
+
+    //val addr = Reg(UInt(addrBits.W))
+    //val bytesLeft = Reg(UInt(log2Ceil(config.size+1).W))
+    
+    when( state === s_idle )
+    {
+        when( start =/= 0.U )
+        {
+            state   := s_init
+        }
+        
+        when( m_stream_valid )
+        {
+            state           := s_write
+            substate_write  := ss_write_req
+        }
+    }
+    .elsewhen( state === s_init )
+    {
+        // Do nothing at the moment
+        state       := s_read
+    }
+    .elsewhen( state === s_read )
+    {
+        when( substate_read === ss_read_init )
+        {
+            substate_read       := ss_read_req
+        }
+        .elsewhen( substate_read === ss_read_req )
+        {
+            when( mem.a.ready && mem.a.valid )
+            {
+                substate_read   := ss_read_await
+            }
+        }
+        .elsewhen( substate_read === ss_read_await )
+        {
+            when( mem.d.valid )
+            {
+                substate_read   := ss_read_readin
+            }
+        }
+        .elsewhen( substate_read === ss_read_readin )
+        {
+            when( m_stream_valid )
+            {
+                state           := s_write
+                substate_write  := ss_write_req
+            }
+            .elsewhen( dwordsLeftToRead === 0.U )
+            {
+                state           := s_idle
+            }
+            .otherwise
+            {
+                substate_read   := ss_read_req
+            }
+            
+            when( dwordsLeftToRead === 0.U )
+            {
+                start           := 0.U
+            }
+        }
+    }
+    .elsewhen( state === s_write )
+    {
+        when( dwordsLeftToWrite === 0.U )
+        {
+            done            := 1.U
+            state           := Mux( dwordsLeftToRead > 0.U, s_read, s_idle )
+            substate_read   := ss_read_req
+        }
+        when( !m_stream_valid )
+        {
+            state           := Mux( dwordsLeftToRead > 0.U, s_read, s_idle )
+            substate_read   := ss_read_req
+        }
+    }
+    
+    when( state === s_idle )
+    {
+        m_stream_ready      := 1.U
+    }
+    .elsewhen( state === s_init )
+    {
+        dwordsLeftToRead    := numDwordsToRead
+        dwordsLeftToWrite   := numDwordsToRead
+    }
+    .elsewhen( state === s_read )
+    {
+        when( substate_read === ss_read_init )
+        {
+            
+        }
+        .elsewhen( substate_read === ss_read_req )
+        {
+            
+        }
+        .elsewhen( substate_read === ss_read_readin )
+        {
+            
+        }
+        // Assume for now that we will only read in data, compute, then writeout
+        mem.a.bits      := edge.Get(
+            fromSource  = 0.U,
+            toAddress   = readAddress,
+            lgSize      = log2Ceil( 64 ).U
+        )
+        mem.a.valid     := true.B
+        mem.d.ready     := true.B
+        
+    }
+    .elsewhen( state === s_write )
+    {
+        
+        mem.d.ready     := true.B
+    }
+    
+    when( start =/= 0.U )
+    {
+        state       := s_init
+        dummyReg    := dummyReg << 1.U
+        start       := 0.U
+    }
+    .otherwise // start === 0.U
+    {
+        
+    }
+    
+
+    mem.a.valid := state === s_write
+    mem.a.bits  := edge.Put(
+        fromSource = 0.U,
+        toAddress = addr,
+        lgSize = log2Ceil(blockBytes).U,
+        data = 69420.U)._2
+    mem.d.ready := state === s_resp
+
+    when (state === s_init) {
+        addr := config.base.U
+        bytesLeft := config.size.U
+        state := s_write
+    }
+
+    when (edge.done(mem.a)) {
+        addr := addr + blockBytes.U
+        bytesLeft := bytesLeft - blockBytes.U
+        state := s_resp
+    }
+
+    when (mem.d.fire) {
+        state := Mux(bytesLeft === 0.U, s_done, s_write)
+    }
+}
+
+*/
+
+trait CanHavePeripheryDecoder{ this: BaseSubsystem =>
+    implicit val p: Parameters
+
+    p(DecoderKey) .map { k =>
+        val fbus = locateTLBusWrapper(FBUS)
+        val mbus = locateTLBusWrapper(MBUS)
+        val pbus = locateTLBusWrapper(PBUS)
+        val sbus = locateTLBusWrapper(SBUS)
+        
+        //val decoder = sbus{ mbus{ pbus{ fbus { LazyModule(new Decoder()(p)) } } } }
+        
+        //lazy val readDMA    = fbus{ LazyModule( new EE290CDMAReader( beatBytes, maxReadBytes, "readDMA" )(p) ) }
+        //lazy val writeDMA   = fbus{ LazyModule( new EE290CDMAWriter( beatBytes, "writeDMA" )(p) ) }
+        
+        
+        val maxReadBytes = (8*16)*8
+        
+        //lazy val readDMA    = LazyModule( new EE290CDMA( fbus.beatBytes, maxReadBytes, "readDMA" )(p) )
+        //lazy val writeDMA   = LazyModule( new EE290CDMA( fbus.beatBytes, maxReadBytes, "writeDMA" )(p) )
+        
+        val decoder = pbus{ fbus{ LazyModule(new Decoder( fbus.beatBytes, maxReadBytes )(p)) } }
+        
+        //lazy val readDMA    = fbus{ LazyModule( new EE290CDMA( fbus.beatBytes, maxReadBytes, "readDMA" ) ) }
+        //lazy val writeDMA   = fbus{ LazyModule( new EE290CDMA( fbus.beatBytes, maxReadBytes, "writeDMA" ) ) }
+        
+        
+        
+        //val dummyRead   = fbus{ decoder.readDMA }
+        //val dummyWrite  = fbus{ decoder.writeDMA }
+        
+        //lazy val readDMA    = fbus{ LazyModule( new EE290CDMA( fbus.beatBytes, maxReadBytes, "readDMA" )(p) ) }
+        //lazy val writeDMA   = fbus{ LazyModule( new EE290CDMA( fbus.beatBytes, maxReadBytes, "writeDMA" )(p) ) }
+        
+        //val crossbar = TLXbar()
+        
+        //val fbus2   = LazyModule( new TLXbar )
+        
+        //val decoder2 = fbus { LazyModule(new Decoder()(p)) }
+        
+        //val gcd = LazyModule(new GCDTL(params, pbus.beatBytes)(p))
+        //    gcd.clockNode := pbus.fixedClockNode
+        //    pbus.coupleTo(portName) { gcd.node := TLFragmenter(pbus.beatBytes, pbus.blockBytes) := _ }
+        
+        //val settings = pbus{ LazyModule(new Settings()(p)) }
+        
+        //fbus.coupleFrom( "decoder" ) { _ := decoder.node }
+        
+        //fbus.coupleFrom( "readDMA" ) { _ := readDMA.id_node }
+        //fbus.coupleFrom( "writeDMA" ) { _ := writeDMA.id_node }
+        
+        fbus.coupleFrom( "readDMA" ) { _ :*= decoder.idNodeRead }
+        fbus.coupleFrom( "writeDMA" ) { _ :*= decoder.idNodeWrite }
+        
+        //fbus.coupleFrom("decoder2") { _ := decoder.node2 }
+        
+        //sbus.coupleFrom("decoder2") { _ := decoder.node2 }
+        //mbus.coupleFrom("decoder2") { _ := decoder.node2 }
+        //mbus.coupleFrom("decoder2") { _ := decoder.node2 }
+        //mbus.coupleTo("decoder2") { decoder.node2 := _ }
+        //pbus.coupleTo("decoder2") { decoder.node2 := TLFragmenter(pbus.beatBytes, pbus.blockBytes) := _ }
+        //pbus.coupleFrom("decoder2") { _ := decoder.node2 }
+        
+        //fbus.coupleFrom("decoder2") { _ := decoder2.node }
+        //settings.clockNode := pbus.fixedClockNode
+        //pbus.coupleTo("decoder_regs") { settings.regNode := TLFragmenter(pbus.beatBytes, pbus.blockBytes) := _ }
+        pbus.coupleTo("decoder_regs") { decoder.regNode := TLFragmenter(pbus.beatBytes, pbus.blockBytes) := _ }
+        
+        //fbus.coupleTo("decoder_regs") { settings.regNode := _ }
+        
+        //decoder.module.settings = settings
+        //decoder.module.maxbits := settings.module.maxbits
+    }
+}
+
+class WithDecoder(base: BigInt, size: BigInt) extends Config((site, here, up) => {
+    case DecoderKey => Some(DecoderConfig(base, size))
+})
+
