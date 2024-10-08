@@ -7,10 +7,12 @@ build.sbt should replace chipyard's default build.sbt at the top level.
 
 The files under test_program should be put in the "tests" directory.
 
-========================= INSTALLATIONS for siliconcompiler ==================================:
+# Installation instructions for Siliconcompiler 
 
 siliconcompiler:
+```bash
 pip install siliconcompiler
+```
 
 openroad:
 git clone --recursive https://github.com/The-OpenROAD-Project/OpenROAD.git
