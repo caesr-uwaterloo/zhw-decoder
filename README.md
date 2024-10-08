@@ -67,7 +67,10 @@ sudo echo "export PATH=$PATH:pathtogitrepo/klayout/bin-release" >> ~/.bashrc
 sudo echo "export LD_LIBRARY_PATH=pathtogitrepo/klayout/bin-release" >> ~/.bashrc
 ```
 
+# Run the encoder or decoder
+
 Once this is done, just run 'python3 run.py' in either of the encoder or decoder siliconcompiler runs.
 
-======================================================================================================
-
+```bash
+python3 run.py
+```
