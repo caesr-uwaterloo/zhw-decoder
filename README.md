@@ -51,17 +51,17 @@ docker run -it -v ./zfp:/zfp rseac/chipyard-docker
 source /chipyard/env.sh
 ```
 
-* TODO: Edit `src/Makefile` and make the following changes
-** Change the archival to static library `ar rc` to `ar rcs ...`
-** Change the `.c.o` target to `-fno-common -fno-builtin-printf -specs=htif_nano.specs -march=rv64imafd -mabi=lp64d -mcmodel=medany`
+* Edit `src/Makefile` and make the following changes
+  * Change the archival to static library `ar rc` to `ar rcs ...`
+  * Change the `.c.o` target to `-fno-common -fno-builtin-printf -specs=htif_nano.specs -march=rv64imafd -mabi=lp64d -mcmodel=medany`
 
-* TODO: Edit `Confg` and make the following changes
-** Change `CC` to `riscv64-unknown-elf-gcc` and `CXX` to `riscv64-unknown-elf-g++` 
-** Change `FLAGS` to `FLAGS = $(OPTFLAGS)` and `LDFLAGS` to `-static -specs=htif_nano.specs`
+* Edit `Confg` and make the following changes
+  * Change `CC` to `riscv64-unknown-elf-gcc` and `CXX` to `riscv64-unknown-elf-g++` 
+  * Change `FLAGS` to `FLAGS = $(OPTFLAGS)` and `LDFLAGS` to `-static -specs=htif_nano.specs`
 
-* TODO: Edit `tests/testzfp.cpp` and add `extern "C" void *__dso_handle = 0;` at the top of the file after the includes.
+* Edit `tests/testzfp.cpp` and add `extern "C" void *__dso_handle = 0;` at the top of the file after the includes.
 
-* TODO: Edit `tests/testviews.cpp` and add `extern "C" void *__dso_handle = 0;` at the top of the file after the includes.
+* Edit `tests/testviews.cpp` and add `extern "C" void *__dso_handle = 0;` at the top of the file after the includes.
 
 * Run `make`
 ```bash
