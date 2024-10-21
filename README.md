@@ -20,6 +20,10 @@ build.sbt should replace chipyard's default build.sbt at the top level.
 
 The files under test_program should be put in the "tests" directory.
 
+# Running ZHW decoder in Chipyard
+
+*MG: TODO*
+
 # Running ZFP (software) version on the RISCV BOOM core in Chipyard
 
 Please follow the installation instructions for Chipyard.
