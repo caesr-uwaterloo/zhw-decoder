@@ -20,7 +20,7 @@ build.sbt should replace chipyard's default build.sbt at the top level.
 
 The files under test_program should be put in the "tests" directory.
 
-# Running ZHW decoder in Chipyard
+# Running ZHW decoder in Chipyard 
 
 *MG: TODO*
 
@@ -82,3 +82,5 @@ make
 ```bash
 make run-binary /zfp/bin/testzfp LOADMEM=1
 ```
+
+* MG:TODO, how do we run our tests that you ran?
