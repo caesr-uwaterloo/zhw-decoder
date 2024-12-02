@@ -128,21 +128,32 @@ void test_decoder( volatile uint64_t * inputArr, uint64_t num_dwords )
     //printf( "Setting write address %lx\n", (uint64_t) output );
     *write_address = (uint64_t) output;
     //printf( "Setting data size\n" );
-    *num_dwords_to_read = num_dwords;
-    *num_dwords_to_write = 0x100 * num_dwords / 16;
+    //*num_dwords_to_read = num_dwords;
+    
+    *num_dwords_to_write = num_dwords;
     
     //printf( "Setting output array to deadbeef...\n" );
     int iter;
-    //for( iter = 0; iter < OUTPUT_ARRAY_LENGTH; iter++ )
-    //{
-    //    output[iter] = 0xdeadbeef;
-    //}
+    for( iter = 0; iter < OUTPUT_ARRAY_LENGTH; iter++ )
+    {
+        output[iter] = 0xdeadbeef;
+    }
     
     //printf( "Setting settings\n" );
-    *maxbits = 0x0040;
-    *minbits = 0x0040;
+    //*maxbits = 0x0400;
+    //*minbits = 0x0400;
+    //*maxbits = 0x0080;
+    //*minbits = 0x0080;
+    
+    *maxbits = 0x0100; // <---------- Change these to change the rate. 0x100 - rate 16, 0x200 - rate 32.
+    *minbits = 0x0100; // <---------- 
+    
     *maxprec = 0x0040;
     *minexp  = 0xfbce;
+    
+    *num_dwords_to_read  = num_dwords * (*maxbits) / 0x400;
+    
+    //*num_dwords_to_write = 0x400 * num_dwords / *maxbits;
     
     //printf( "Guaranteeing that done is down\n" );
     *done_reg = 0;
@@ -183,16 +194,16 @@ void test_decoder( volatile uint64_t * inputArr, uint64_t num_dwords )
     
     //printf( "Clock ticks elapsed (1 GHz) = %ld\n", elapsed_time );
     
-    //for( iter = 0; iter < OUTPUT_ARRAY_LENGTH/4; iter++ )
-    //{
-    //    printf( "%lx    %lx    %lx    %lx\n", output[4*iter+0], output[4*iter+1], output[4*iter+2], output[4*iter+3] );
-    //    
-    //    if( output[ 4*iter+3 ] == 0xdeadbeef )
-    //    {
-    //        printf( "...\n" );
-    //        break;
-    //    }
-    //}
+    for( iter = 0; iter < OUTPUT_ARRAY_LENGTH/4; iter++ )
+    {
+        printf( "%lx    %lx    %lx    %lx\n", output[4*iter+0], output[4*iter+1], output[4*iter+2], output[4*iter+3] );
+        
+        if( output[ 4*iter+3 ] == 0xdeadbeef )
+        {
+            printf( "...\n" );
+            break;
+        }
+    }
     
     //printf( "Internal Array1,2,3,4:\n" );
     //for( iter = 0; iter < 64; iter++ )
@@ -207,79 +218,6 @@ void test_decoder( volatile uint64_t * inputArr, uint64_t num_dwords )
     //return elapsed_time;
 }
 
-/*
-void test_decoder2()
-{
-    printf( "Doing the real test\n" );
-    
-    printf( "Setting read address %lx\n", (uint64_t) input );
-    *read_address = (uint64_t) input;
-    printf( "Setting write address %lx\n", (uint64_t) output );
-    *write_address = (uint64_t) output;
-    printf( "Setting data size\n" );
-    *num_dwords_to_read = NUM_64_BIT_VALS / 2;
-    
-    printf( "Setting settings\n" );
-    *maxbits = 0x0200;
-    *minbits = 0x0200;
-    *maxprec = 0x0040;
-    *minexp  = 0xfbce;
-    
-    printf( "Indicators before starting:\n" );
-    printf( "Indicator = %lx, Indicator2 = %lx\n", *indicator, *indicator2 );
-    
-    printf( "Starting\n" );
-    *start_reg = 1;
-    
-    int see_what_happened_limit = 20;
-    int num_passes = 0;
-    
-    //while( *done_reg < 1 )
-    //{
-    //    printf( "Indicator = %lx, Indicator2 = %lx, num passes = %d\n", *indicator, *indicator2, num_passes++ );
-    //}
-    //printf( "Done was asserted\n" );
-    
-    //printf( "Indicators after finishing:\n" );
-    //printf( "Indicator = %lx, Indicator2 = %lx\n", *indicator, *indicator2 );
-    
-    printf( "Setting output array to deadbeef...\n" );
-    int iter;
-    for( iter = 0; iter < NUM_64_BIT_VALS; iter++ )
-    {
-        output[iter] = 0xdeadbeef;
-        //printf( "%lx\n", output[iter] );
-    }
-    
-    printf( "Starting another transaction.\n" );
-    
-    while( *start_reg )
-    {
-        printf( "Waiting for start_reg to go low...\n" );
-    }
-    
-    printf( "Starting the new transfer..." );
-    *read_address = (uint64_t) &input[ NUM_64_BIT_VALS/2 ];
-    *write_address = (uint64_t) &output[ NUM_64_BIT_VALS/2 ];
-    *start_reg = 1;
-    
-    while( ( *done_reg < 2 ) && ( num_passes < see_what_happened_limit ) )
-    {
-        printf( "Indicator = %lx, Indicator2 = %lx, num passes = %d, done_reg=%d\n", *indicator, *indicator2, num_passes++, *done_reg );
-    }
-    printf( "Done was asserted\n" );
-    
-    printf( "Indicators after finishing:\n" );
-    printf( "Indicator = %lx, Indicator2 = %lx\n", *indicator, *indicator2 );
-    
-    printf( "Result is:\n" );
-    for( iter = 0; iter < NUM_64_BIT_VALS; iter++ )
-    {
-        printf( "%lx\n", output[iter] );
-    }
-}
-*/
-
 int main(void) {
     uint64_t marchid = read_csr(marchid);
     const char* march = get_march(marchid);
@@ -287,9 +225,11 @@ int main(void) {
 
     uint32_t block_iter;
     
-    for( block_iter = NUM_DWORDS_PER_BLOCK; block_iter < NUM_64_BIT_VALS; block_iter = block_iter << 1 )
-    //for( block_iter = NUM_DWORDS_PER_BLOCK; block_iter < (2*NUM_DWORDS_PER_BLOCK); block_iter = block_iter << 1 )
+    //for( block_iter = NUM_DWORDS_PER_BLOCK; block_iter < NUM_64_BIT_VALS; block_iter = block_iter << 1 )
+    //for( block_iter = 2*NUM_DWORDS_PER_BLOCK; block_iter < (4*NUM_DWORDS_PER_BLOCK); block_iter = block_iter << 1 )
+    for( block_iter = NUM_DWORDS_PER_BLOCK; block_iter < (8*NUM_DWORDS_PER_BLOCK); block_iter = block_iter << 1 )
     {
+        printf( "block_iter = %d\n", block_iter );
         if( INPUT_LEN >= block_iter )
         {
             //uint64_t time_elapsed = test_decoder( input, block_iter );
@@ -302,6 +242,11 @@ int main(void) {
             //printf( "NA, \n" );
             break;
         }
+    }
+    
+    if( block_iter < (8*NUM_DWORDS_PER_BLOCK) )
+    {
+        printf( "The for loop did not finish? block_iter = %d, limit = %d\n", block_iter, (8*NUM_DWORDS_PER_BLOCK) );
     }
     
     printf( "done\n" );

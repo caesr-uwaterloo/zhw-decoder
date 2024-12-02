@@ -5,6 +5,8 @@
 yes | cp -rf ./build.sbt /chipyard/
 yes | cp -rf ./decoder/ /chipyard/generators/
 yes | cp -rf ./sp21-dma/ /chipyard/generators/
+yes | cp -rf ./DecoderConfig.scala /chipyard/generators/chipyard/src/main/scala/config/
+yes | cp -rf ./DigitalTop.scala /chipyard/generators/chipyard/src/main/scala/
 
 # Copy zfp tests
 yes | cp -rf ./zfp_files/Config /chipyard/tests/zfp
@@ -13,6 +15,7 @@ yes | cp -rf ./zfp_files/performance0.c /chipyard/tests/zfp/examples/
 yes | cp -rf ./zfp_files/performance1.c /chipyard/tests/zfp/examples/
 yes | cp -rf ./zfp_files/performance2.c /chipyard/tests/zfp/examples/
 yes | cp -rf ./zfp_files/performance3.c /chipyard/tests/zfp/examples/
+yes | cp -rf ./test_program/tvs.h /chipyard/tests/zfp/examples/
 yes | cp -rf ./zfp_files/srcMakefile /chipyard/tests/zfp/src/Makefile
 
 
@@ -21,6 +24,7 @@ yes | cp -rf ./zfp_files/srcMakefile /chipyard/tests/zfp/src/Makefile
 yes | cp -rf ./test_program/test_decoder.c /chipyard/tests/
 yes | cp -rf ./test_program/test_decoder.h /chipyard/tests/
 yes | cp -rf ./test_program/tvs.h /chipyard/tests/
+yes | cp -rf ./test_program/CMakeLists.txt /chipyard/tests/
 #yes | cp -rf ./test_program/Makefile /chipyard/tests/
 
 yes | cp -rf ./test_program/test_decoder0.c /chipyard/tests/
@@ -51,4 +55,7 @@ yes | cp -rf ./test_program/test_decoder24.c /chipyard/tests/
 yes | cp -rf ./test_program/test_decoder25.c /chipyard/tests/
 yes | cp -rf ./test_program/test_decoder26.c /chipyard/tests/
 yes | cp -rf ./test_program/test_decoder27.c /chipyard/tests/
+
+yes | cp -rf ./run_tests.sh /chipyard/sims/verilator/
+
 
