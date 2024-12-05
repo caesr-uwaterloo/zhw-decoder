@@ -8,79 +8,109 @@ These instructions have been tested on a Linux (Ubuntu) distribution.  They shou
 # Documentation
 
 1. [Installation instructions for Siliconcompiler](docs/install-siliconcompiler.md)
-2. [Installation instructions for Chipyard using Docker](docs/install-docker-chipyard.md) 
+2. [Installation instructions for Chipyard using Docker](docs/install-docker-chipyard.md)
 
-# Generating GDSII for the ZHW decoder
+# Quick Setup
+Pull the docker container
+```bash
+docker pull themichaelgionet/zhw_container
+```
+Or build it locally if you want
+```bash
+docker build -t zhw_container .
+```
+It is expected to take a long time to build. 
 
-Please follow the installation instructions for Siliconcompiler.
+Start the container in one terminal
+```bash
+docker run -it themichaelgionet/zhw_container bash
+```
 
-The "decoder" and "sp21-dma" directories should be put in the "generators" directory in chipyard for reproducibility.
+Copy over this repo into the docker container, or pull it into the container
+```bash
+# Copy
+docker cp . [docker process id]:/zhw_decoder
+```
 
-build.sbt should replace chipyard's default build.sbt at the top level.
+```bash
+# Pull
+git clone https://github.com/caesr-uwaterloo/zhw-decoder.git
+```
 
-The files under test_program should be put in the "tests" directory.
+Now just run the automated setup within the docker container:
+```bash
+source initial_setup.sh
+```
+Don't worry if you see some errors when it gets to making the zfp examples, those are for tests that are not relevant for this. After that completes, you are ready to use the tools.
 
 # Running ZHW decoder in Chipyard 
 
-*MG: TODO*
+The quick start procedure should have everything setup. Navigate to the "sims/verilator" directory
+```bash
+cd /chipyard/sims/verilator/
+```
+
+All tests (hardware and software) can be run at once with a script that is included. For that, just do:
+```bash
+source run_tests.sh
+```
+It is setup to run those tests as background processes. The results of those tests should be in "./hardware_results/" and "./software_results/". 
+
+The "rate" setting by default is rate 16 (maxbits=0x100). To change it in hardware, navigate to "/chipyard/tests/"
+```bash
+cd /chipyard/tests/
+```
+
+Now, modify the test_decoder.c program to include the new rate. The maxbits and minbits to use are computed as "minbits=maxbits=0x10*rate". This should be on lines 148,149.
+```bash
+vim ./test_decoder.c
+```
+
+Next, clean the directory and rebuild.
+```
+make clean
+cmake CMakeList.txt clean
+cmake CMakeList.txt
+make -j16
+```
+
+Navigate back to the simulation directory and rerun tests
+```bash
+cd /chipyard/sims/verilator/
+source run_tests.sh
+```
+
+You could also comment out the print statements for the output values, in lines 197 to 206 of test_decoder.c to run the sim faster. Unlike the software version, the print statements here do not affect the timing results (they don't affect it too much, that is).
 
 # Running ZFP (software) version on the RISCV BOOM core in Chipyard
 
-Please follow the installation instructions for Chipyard.
-
-The [ZFP](https://github.com/LLNL/zfp) compression library needs to be compiled with the RISCV toolchain, and there are a few changes that must be done in order for it to work on the BOOM core.
-
-Make a directory
+Running the software version uses the same script as the hardware version. Once the repo is setup, just do this from /chipyard/sims/verilator/
 ```bash
-mkdir chipyard && cd chipyard
+source run_tests.sh
 ```
 
-Pull the Docker container for Chipyard
+The results should be in the new ./software_results/ directory. 
+NOTE: by default, the software version does not print the results to the screen. Printing values to the screen does heavily impact performance, but allows the user to verify the results as a tradeoff. To change this, go to the zfp examples directory
 ```bash
-docker pull rseac/chipyard-docker
+cd /chipyard/tests/zfp/examples/
 ```
 
-Clone the ZFP repository 
+Next, in all of performance0.c, performance1.c, performance2.c, performance3.c, uncomment lines 214 to 218 inclusive. 
 ```bash
-git clone 
+vim ./performance0.c
+vim ./performance1.c
+vim ./performance2.c
+vim ./performance3.c
 ```
 
-* Run the container in interactive mode while mapping the ZFP repository into the container 
+Rebuild
 ```bash
-docker run -it -v ./zfp:/zfp rseac/chipyard-docker
+make clean
+make -j16
 ```
 
-* Source `env.sh` to correctly populate all the paths for the tools
+Go back to the verilator simulation directory and rerun
 ```bash
-source /chipyard/env.sh
+cd /chipyard/sims/verilator/
+source run_tests.sh
 ```
-
-* Edit `src/Makefile` and make the following changes
-  * Change the archival to static library `ar rc` to `ar rcs ...`
-  * Change the `.c.o` target to `-fno-common -fno-builtin-printf -specs=htif_nano.specs -march=rv64imafd -mabi=lp64d -mcmodel=medany`
-
-* Edit `Confg` and make the following changes
-  * Change `CC` to `riscv64-unknown-elf-gcc` and `CXX` to `riscv64-unknown-elf-g++` 
-  * Change `FLAGS` to `FLAGS = $(OPTFLAGS)` and `LDFLAGS` to `-static -specs=htif_nano.specs`
-
-* Edit `tests/testzfp.cpp` and add `extern "C" void *__dso_handle = 0;` at the top of the file after the includes.
-
-* Edit `tests/testviews.cpp` and add `extern "C" void *__dso_handle = 0;` at the top of the file after the includes.
-
-* Run `make`
-```bash
-make
-```
-
-* Make sure Veirlator is compiled
-```
-cd /chipyard/sims/verilator
-make
-
-```
-* Run `testzfp` on the BOOM core
-```bash
-make run-binary /zfp/bin/testzfp LOADMEM=1
-```
-
-* MG:TODO, how do we run our tests that you ran?
